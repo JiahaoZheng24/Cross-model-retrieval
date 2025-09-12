@@ -1,43 +1,82 @@
 # Cross-Modal Retrieval
 
-This repository provides code and scripts to run cross-modal retrieval experiments (e.g., text-to-video, video-to-text) with different embedding dimensions, precisions, and candidate sizes. The setup is based on **Conda** for environment management and **pip** for dependency installation.
+This repository implements experiments for cross‑modal retrieval (e.g., matching text and images/videos), comparing different embedding dimensions, quantization precisions, and candidate set sizes. The goal is to study trade‑offs in **accuracy (Recall, MRR)**, **speed**, and **memory usage**.
+
+---
+
+## Table of Contents
+
+- [Project Structure](#project-structure)  
+- [Environment Setup](#environment-setup)  
+- [Usage / Running Experiments](#usage--running-experiments)  
+- [Analysis of Results](#analysis-of-results)  
+- [Using `submit_job.sh` on Cluster](#using-submit_jobsh-on-cluster)  
+- [Dependencies](#dependencies)  
+- [License](#license)
+
+---
+
+## Project Structure
+
+```
+Cross-model-retrieval/
+├── coco_data/                 # Generated dataset embeddings, annotations etc.
+├── result/                    # Experiment outputs (metrics, intermediate files)
+├── analyze_results.py         # Script to aggregate and summarize results
+├── coco_dataset_solution.py   # Data preparation: build embeddings etc.
+├── run_experiments.py         # Main script to run retrieval experiments
+├── submit_job.sh              # Script for HPC / batch submission
+├── requirements.txt           # Python dependencies
+├── README.md                  # (This file)
+└── LICENSE                    # MIT license
+```
 
 ---
 
 ## Environment Setup
 
-We recommend creating a dedicated Conda environment and installing dependencies with `pip`.
+We use **Conda** for environment management and **pip** for dependency installation.  
 
-### 1. Create Conda Environment
+**1. Create Conda Environment**
 
 ```bash
 conda create -n crossmodal_exp python=3.9 -y
-2. Activate Environment
-bash
-Copy code
+```
+
+**2. Activate Environment**
+
+```bash
 conda activate crossmodal_exp
-3. Install Dependencies
-GPU version (CUDA 11.8):
+```
 
-bash
-Copy code
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-CPU version (if no GPU available):
+**3. Install Dependencies**
 
-bash
-Copy code
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-Install other dependencies:
+- GPU version (CUDA 11.8):
 
-bash
-Copy code
-pip install faiss-gpu  # or faiss-cpu if no GPU
-pip install numpy scipy scikit-learn matplotlib seaborn pandas tqdm h5py pillow
-Requirements File
-You can also install dependencies directly from requirements.txt:
+  ```bash
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+  ```
 
-txt
-Copy code
+- CPU version (if no GPU available):
+
+  ```bash
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+  ```
+
+- Other required packages:
+
+  ```bash
+  pip install faiss-gpu  # or faiss-cpu if no GPU
+  pip install numpy scipy scikit-learn matplotlib seaborn pandas tqdm h5py pillow
+  ```
+
+---
+
+## Dependencies
+
+You can also install all dependencies from `requirements.txt`:
+
+```
 torch>=1.13.0
 torchvision>=0.14.0
 torchaudio>=0.13.0
@@ -51,72 +90,106 @@ pandas>=1.3.0
 tqdm>=4.62.0
 h5py>=3.6.0
 pillow>=8.3.0
+```
+
 Install via:
 
-bash
-Copy code
+```bash
 pip install -r requirements.txt
-Verification
-After installation, run the following to verify everything is working:
+```
 
-bash
-Copy code
-python -c "import torch; print('PyTorch version:', torch.__version__)"
-python -c "import faiss; print('FAISS version:', faiss.__version__)"
-python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
-Running Experiments
-The workflow consists of three main steps: dataset preparation, experiment execution, and result analysis.
-A job submission script (submit_job.sh) is included for running on an HPC cluster with GPU support.
+---
 
-1. Create COCO Dataset Embeddings
-bash
-Copy code
-python coco_dataset_solution.py
-This will generate CLIP embeddings for a subset of the COCO validation dataset and save them in ./coco_data/.
+## Usage / Running Experiments
 
-2. Run Cross-Modal Retrieval Experiments
-bash
-Copy code
-python run_experiments.py \
-    --data_path ./coco_data/coco_embeddings.npz \
-    --output_dir ./results \
-    --embedding_dims 256 512 1024 \
-    --precisions fp16 int8 int4 \
-    --candidate_sizes 32 100 1000 \
-    --recall_k 1 5 10 \
-    --batch_size 128 \
-    --num_workers 4
-This will test different embedding dimensions, quantization precisions, and candidate sizes, and store results in the ./results/ directory.
+The workflow comprises three main phases:
 
-3. Analyze Results
-bash
-Copy code
-python analyze_results.py \
-    --results_dir ./results \
-    --output_path ./results/experiment_summary.json
-This step aggregates all experiment outputs into a single JSON summary with metrics such as average Recall@K, MRR, speed, and memory usage.
+1. **Data Preparation**  
+   Build the embedding dataset from COCO (or whichever data you use) using `coco_dataset_solution.py`:
 
-Using submit_job.sh (HPC Cluster)
-If you are running on a cluster with a job scheduler (e.g., SGE, Slurm), you can use the provided submit_job.sh script:
+   ```bash
+   python coco_dataset_solution.py
+   ```
 
-bash
-Copy code
+   This script should generate embeddings (e.g., via CLIP), and save required files under `coco_data/`.
+
+2. **Running Retrieval Experiments**  
+   Use `run_experiments.py` to evaluate with multiple configurations:
+
+   ```bash
+   python run_experiments.py \
+     --data_path ./coco_data/coco_embeddings.npz \
+     --output_dir ./result \
+     --embedding_dims 256 512 1024 \
+     --precisions fp16 int8 int4 \
+     --candidate_sizes 32 100 1000 \
+     --recall_k 1 5 10 \
+     --batch_size 128 \
+     --num_workers 4
+   ```
+
+   Adjust parameters as needed for your machine. This generates metrics (Recall@K, MRR, speed, memory) under different settings and saves into `result/`.
+
+3. **Analysis of Results**  
+   Aggregate all experiment outputs into a summary JSON or other formats with `analyze_results.py`:
+
+   ```bash
+   python analyze_results.py \
+     --results_dir ./result \
+     --output_path ./result/experiment_summary.json
+   ```
+
+   The summary will include things like average Recall@K, speed, memory usage across all configurations.
+
+---
+
+## Using `submit_job.sh` on Cluster
+
+If you are on an HPC or batch system that uses **job scheduler** (Slurm / SGE / PBS etc.), you can use the provided `submit_job.sh` script. It automates:
+
+- Initializing the conda environment  
+- Installing dependencies if needed  
+- Running the three phases (data prep → experiments → analysis)  
+- Saving or backing up results
+
+Example:
+
+```bash
 qsub submit_job.sh
-The script will:
+# or
+sbatch submit_job.sh
+```
 
-Activate the Conda environment
+You may need to adjust environment paths or scheduler directives inside `submit_job.sh` depending on your cluster setup.
 
-Install dependencies (if missing)
+---
 
-Run dataset preparation, experiments, and analysis
+## Analysis of Results
 
-Save results and create a backup copy in ~/backup_results/
+- After experiments, you will find many configurations compared. Key metrics to look at:
 
-Notes
-Use the GPU version of PyTorch and FAISS if you have CUDA-capable hardware.
+  - **Recall@K** (e.g., @1, @5, @10) — how often the correct item is ranked in top‑K  
+  - **MRR** — mean reciprocal rank  
+  - **Speed** — how many queries/second, or latency  
+  - **Memory usage** — embedding size, quantization overhead
 
-If running on a CPU-only machine, install faiss-cpu instead of faiss-gpu and use the CPU build of PyTorch.
+- Typical trade‑offs you will observe:
 
-For reproducibility, keep a copy of your requirements.txt under version control.
+  - Higher embedding dimension → usually more accurate but slower & more memory  
+  - Lower precision (e.g. int4) → saves memory, may be slightly slower / slightly less accurate  
+  - Larger candidate set size → higher recall, but with computational cost
 
-To improve performance on clusters without internet access, pre-download the HuggingFace CLIP model on a login node to populate your cache (~/.cache/huggingface).
+---
+
+## License
+
+This project is released under the **MIT License**. See `LICENSE` for details.
+
+---
+
+## Contact / Contributing
+
+- If you find issues or have improvements (e.g. more quantization methods, more datasets), feel free to open an issue or PR.  
+- Maintain readability and structure (scripts, result folders) when contributing.
+
+---
