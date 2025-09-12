@@ -1,0 +1,11 @@
+{
+  "dataset_type": "coco_validation",
+  "num_samples": 1000,
+  "embedding_dims": [
+    256,
+    512,
+    1024
+  ],
+  "file_size_mb": 11.257994651794434,
+  "description": "COCO validation set with CLIP embeddings for cross-modal retrieval"
+}

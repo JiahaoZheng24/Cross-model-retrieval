@@ -1,0 +1,87 @@
+{
+  "total_experiments": 27,
+  "embedding_dimensions": [
+    256,
+    512,
+    1024
+  ],
+  "precisions": [
+    "fp16",
+    "int4",
+    "int8"
+  ],
+  "candidate_sizes": [
+    32,
+    100,
+    1000
+  ],
+  "best_performance": {
+    "highest_avg_recall@1": {
+      "value": 0.5245,
+      "experiment": "dim_256_prec_int4_cand_32",
+      "config": {
+        "dim": 256,
+        "precision": "int4",
+        "candidates": 32
+      }
+    },
+    "fastest_retrieval": {
+      "value": 6427.1065100000615,
+      "experiment": "dim_256_prec_int8_cand_32",
+      "config": {
+        "dim": 256,
+        "precision": "int8",
+        "candidates": 32
+      }
+    },
+    "most_memory_efficient": {
+      "value": 0.0001220703125,
+      "experiment": "dim_256_prec_int4_cand_32",
+      "config": {
+        "dim": 256,
+        "precision": "int4",
+        "candidates": 32
+      }
+    }
+  },
+  "performance_by_dim": {
+    "256": 0.3419444444444444,
+    "512": 0.3408888888888889,
+    "1024": 0.3402222222222222
+  },
+  "performance_by_precision": {
+    "fp16": 0.34027777777777773,
+    "int4": 0.34177777777777774,
+    "int8": 0.34099999999999997
+  },
+  "performance_by_candidates": {
+    "32": 0.516888888888889,
+    "100": 0.5051666666666667,
+    "1000": 0.001
+  },
+  "speed_by_dim": {
+    "256": 3017.118480796539,
+    "512": 2716.2552180413213,
+    "1024": 1232.2961801597878
+  },
+  "speed_by_precision": {
+    "fp16": 1455.6856459198682,
+    "int4": 2640.3380885166134,
+    "int8": 2869.646144561167
+  },
+  "speed_by_candidates": {
+    "32": 4389.483411073381,
+    "100": 2382.397125348524,
+    "1000": 193.78934257574412
+  },
+  "memory_by_dim": {
+    "256": 0.0002848307291666667,
+    "512": 0.0005696614583333334,
+    "1024": 0.0011393229166666667
+  },
+  "memory_by_precision": {
+    "fp16": 0.0011393229166666667,
+    "int4": 0.0002848307291666667,
+    "int8": 0.0005696614583333334
+  }
+}
