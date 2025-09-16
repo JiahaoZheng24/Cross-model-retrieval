@@ -13,6 +13,7 @@ from PIL import Image
 from io import BytesIO
 from tqdm import tqdm
 import logging
+import random
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,21 +22,32 @@ logger = logging.getLogger(__name__)
 class COCODatasetManager:
     """Manage COCO dataset for cross-modal retrieval experiments"""
 
-    def __init__(self, data_root: str = "./coco_data", num_samples: int = 1000):
+    def __init__(self, data_root: str = "./coco_data", num_samples: int = 1000, seed: int = 42):
         """
         Initialize COCO dataset manager
 
         Args:
             data_root: Directory to store COCO data
             num_samples: Number of image-caption pairs to use
+            seed: global seed for reproducible shuffling
         """
         self.data_root = Path(data_root)
         self.data_root.mkdir(exist_ok=True)
         self.num_samples = num_samples
+        self.seed = seed
 
         # COCO API URLs
         self.annotations_url = "http://images.cocodataset.org/annotations/annotations_trainval2017.zip"
         self.images_base_url = "http://images.cocodataset.org/val2017/"
+
+        # RNG
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        try:
+            torch.manual_seed(self.seed)
+            torch.cuda.manual_seed_all(self.seed)
+        except Exception:
+            pass
 
     def download_coco_annotations(self) -> bool:
         """Download COCO annotations if not exists"""
@@ -47,17 +59,9 @@ class COCODatasetManager:
             logger.info("COCO annotations already exist")
             return True
 
-        logger.info("COCO annotations not found. You have two options:")
-        logger.info("Option 1 - Download manually (recommended):")
-        logger.info("  1. Download annotations: http://images.cocodataset.org/annotations/annotations_trainval2017.zip (~240MB)")
-        logger.info("  2. Extract to: ./coco_data/annotations/")
-        logger.info("Option 2 - Use sample data (for testing):")
-        logger.info("  The script will create sample data automatically")
-        logger.info("")
-        logger.info("Commands to download:")
-        logger.info("  wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip")
-        logger.info("  unzip annotations_trainval2017.zip -d ./coco_data/")
-
+        logger.info("COCO annotations not found. You can download manually:")
+        logger.info("  http://images.cocodataset.org/annotations/annotations_trainval2017.zip (~240MB)")
+        logger.info("  unzip to: ./coco_data/annotations/")
         return False
 
     def load_coco_captions(self) -> List[Dict]:
@@ -74,10 +78,8 @@ class COCODatasetManager:
         with open(captions_file, 'r') as f:
             coco_data = json.load(f)
 
-        # Create image_id to filename mapping
         images = {img['id']: img['file_name'] for img in coco_data['images']}
 
-        # Extract image-caption pairs
         samples = []
         for ann in coco_data['annotations'][:self.num_samples]:
             image_id = ann['image_id']
@@ -112,7 +114,6 @@ class COCODatasetManager:
 
         samples = []
         for i in range(self.num_samples):
-            # Cycle through sample captions
             caption = sample_captions[i % len(sample_captions)]
             if i >= len(sample_captions):
                 caption += f" (variation {i // len(sample_captions)})"
@@ -139,7 +140,6 @@ class COCODatasetManager:
         model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
-        # Move to GPU if available
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model.to(device)
         model.eval()
@@ -153,43 +153,31 @@ class COCODatasetManager:
 
         for i, sample in enumerate(tqdm(samples, desc="Processing samples")):
             try:
-                # Process image
                 image = self.load_image(sample['image_url'])
                 if image is None:
-                    # Use a dummy image if loading fails
                     image = Image.new('RGB', (224, 224), color='gray')
-
-                # Process text
                 caption = sample['caption']
 
-                # Extract features
                 inputs = processor(
                     text=[caption],
                     images=[image],
                     return_tensors="pt",
                     padding=True
                 )
-
-                # Move inputs to device
                 inputs = {k: v.to(device) for k, v in inputs.items()}
 
                 with torch.no_grad():
                     outputs = model(**inputs)
-
-                    # Get embeddings and move to CPU
                     img_emb = outputs.image_embeds.cpu().numpy()[0]
                     txt_emb = outputs.text_embeds.cpu().numpy()[0]
-
                     image_embeddings.append(img_emb)
                     text_embeddings.append(txt_emb)
 
             except Exception as e:
                 logger.warning(f"Error processing sample {i}: {e}")
-                # Use random embeddings as fallback
                 image_embeddings.append(np.random.randn(512).astype(np.float32))
                 text_embeddings.append(np.random.randn(512).astype(np.float32))
 
-        # Convert to numpy arrays
         image_embeddings = np.array(image_embeddings)
         text_embeddings = np.array(text_embeddings)
 
@@ -202,24 +190,19 @@ class COCODatasetManager:
 
     def load_image(self, image_url: str) -> Optional[Image.Image]:
         """Load image from URL or local path"""
-
         try:
             if image_url.startswith('http'):
-                # Download from URL
                 response = requests.get(image_url, timeout=10)
                 if response.status_code == 200:
                     image = Image.open(BytesIO(response.content)).convert('RGB')
                     return image
             else:
-                # Load from local path
                 image_path = self.data_root / "images" / image_url
                 if image_path.exists():
                     image = Image.open(image_path).convert('RGB')
                     return image
-
         except Exception as e:
             logger.warning(f"Failed to load image {image_url}: {e}")
-
         return None
 
     def create_multi_scale_embeddings(self, base_embeddings: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -228,60 +211,52 @@ class COCODatasetManager:
         logger.info("Creating multi-scale embeddings...")
 
         embeddings = base_embeddings.copy()
-
-        # Get base 512-dim embeddings
         text_512 = base_embeddings['text_512']
         image_512 = base_embeddings['image_512']
 
-        # Create 256-dim embeddings (dimensionality reduction)
-        logger.info("Creating 256-dim embeddings...")
-        reduction_matrix_256 = np.random.randn(512, 256) / np.sqrt(512)
-        embeddings['text_256'] = text_512 @ reduction_matrix_256
-        embeddings['video_256'] = image_512 @ reduction_matrix_256  # Use 'video' for consistency
+        # 创建 256/1024 维（随机投影），并统一 L2 normalize
+        rng = np.random.default_rng(self.seed)
 
-        # Create 1024-dim embeddings (dimensionality expansion)
+        logger.info("Creating 256-dim embeddings...")
+        reduction_matrix_256 = rng.standard_normal((512, 256)) / np.sqrt(512)
+        embeddings['text_256'] = text_512 @ reduction_matrix_256
+        embeddings['video_256'] = image_512 @ reduction_matrix_256
+
         logger.info("Creating 1024-dim embeddings...")
-        expansion_matrix_1024 = np.random.randn(512, 1024) / np.sqrt(512)
+        expansion_matrix_1024 = rng.standard_normal((512, 1024)) / np.sqrt(512)
         embeddings['text_1024'] = text_512 @ expansion_matrix_1024
         embeddings['video_1024'] = image_512 @ expansion_matrix_1024
 
-        # Rename 512-dim for consistency
         embeddings['video_512'] = embeddings.pop('image_512')
 
-        # Normalize all embeddings
-        for key in embeddings:
+        for key in list(embeddings.keys()):
             if key.startswith(('text_', 'video_')):
-                embeddings[key] = embeddings[key] / np.linalg.norm(embeddings[key], axis=1, keepdims=True)
+                norms = np.linalg.norm(embeddings[key], axis=1, keepdims=True) + 1e-12
+                embeddings[key] = embeddings[key] / norms
 
         logger.info("Multi-scale embeddings created")
         return embeddings
 
     def save_dataset(self, embeddings: Dict[str, np.ndarray], ground_truth: List[int]) -> str:
         """Save the processed dataset"""
-
-        # Add ground truth
         embeddings['ground_truth'] = np.array(ground_truth)
-
-        # Save embeddings
         save_path = self.data_root / "coco_embeddings.npz"
         np.savez_compressed(save_path, **embeddings)
 
-        # Save metadata
         metadata = {
-            "dataset_type": "coco_validation",
+            "dataset_type": "coco_validation_or_sample",
             "num_samples": len(ground_truth),
             "embedding_dims": [256, 512, 1024],
             "file_size_mb": save_path.stat().st_size / (1024 * 1024),
-            "description": "COCO validation set with CLIP embeddings for cross-modal retrieval"
+            "description": "COCO validation set with CLIP embeddings (or sample) for cross-modal retrieval",
+            "seed": self.seed
         }
 
         metadata_path = self.data_root / "metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f, indent=2)
 
-        logger.info(f"Dataset saved to: {save_path}")
-        logger.info(f"File size: {metadata['file_size_mb']:.2f} MB")
-
+        logger.info(f"Dataset saved to: {save_path} ({metadata['file_size_mb']:.2f} MB)")
         return str(save_path)
 
     def create_coco_dataset(self) -> str:
@@ -289,50 +264,44 @@ class COCODatasetManager:
 
         logger.info("=== Creating COCO Dataset for Cross-Modal Retrieval ===")
 
-        # Step 1: Load COCO data
         samples = self.load_coco_captions()
-
-        # Step 2: Extract CLIP features
         base_embeddings = self.extract_clip_features(samples)
-
-        # Step 3: Create multi-scale embeddings
         all_embeddings = self.create_multi_scale_embeddings(base_embeddings)
 
-        # Step 4: Create ground truth (each text matches corresponding image)
+        # Ground truth: 1:1 alignment (i -> i)
         ground_truth = list(range(len(samples)))
 
-        # Step 5: Save dataset
+        # ---- 全局 shuffle（仅打乱 queries = text_*，保持 gallery = video_* 不变）----
+        # 这样 ground_truth 仍指向“原始 gallery 全局索引”，只需同步打乱 ground_truth 的顺序即可
+        perm = np.random.permutation(len(ground_truth))
+        for key in list(all_embeddings.keys()):
+            if key.startswith('text_'):
+                all_embeddings[key] = all_embeddings[key][perm]
+        ground_truth = np.array(ground_truth)[perm].tolist()
+        logger.info("Applied global shuffle to queries with fixed seed for reproducibility")
+
         dataset_path = self.save_dataset(all_embeddings, ground_truth)
-
         logger.info("✓ COCO dataset creation completed")
-
         return dataset_path
+
 
 def main():
     """Main function"""
-
     print("=== COCO Dataset Solution for Cross-Modal Retrieval ===\n")
+    num_samples = 1000
+    seed = 42
+    print(f"Creating dataset with {num_samples} samples (seed={seed})...")
 
-    # Use default parameters for batch processing
-    num_samples = 1000  # Fixed number of samples
-
-    print(f"Creating dataset with {num_samples} samples...")
-
-    # Create dataset manager
-    manager = COCODatasetManager(data_root="./coco_data", num_samples=num_samples)
+    manager = COCODatasetManager(data_root="./coco_data", num_samples=num_samples, seed=seed)
 
     try:
-        # Create dataset
         dataset_path = manager.create_coco_dataset()
-
         print(f"\n✓ COCO dataset ready!")
         print(f"Dataset path: {dataset_path}")
-        print(f"Next step: Run experiments with this dataset")
-        print(f"Command: python run_experiments.py --data_path {dataset_path}")
-
+        print(f"Next: python run_experiments.py --data_path {dataset_path} --output_dir ./result")
     except Exception as e:
         logger.error(f"Failed to create dataset: {e}")
-        print("Error creating dataset. Check the logs above.")
+        print("Error creating dataset. Check logs.")
 
 if __name__ == "__main__":
     main()
