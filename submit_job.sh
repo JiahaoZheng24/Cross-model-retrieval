@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#$ -M jzheng7@nd.edu
-#$ -m abe
-#$ -pe smp 8
-#$ -q gpu
-#$ -l gpu_card=1
-#$ -N crossmodal_retrieval_exp
+#$ -M netid@nd.edu              # Email address for job notification
+#$ -m abe                       # Send mail when job begins, ends and aborts
+#$ -pe smp 8                    # Specify parallel environment and legal core size
+#$ -q gpu                       # Run on the GPU cluster
+#$ -l gpu_card=1                # Run on 1 GPU card
+#$ -N crossmodal_retrieval_exp  # Specify job name
 
 export CUDA_VISIBLE_DEVICES=0
 
